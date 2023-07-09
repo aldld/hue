@@ -2,6 +2,7 @@ package timelight
 
 import (
 	"strings"
+	"time"
 
 	"github.com/aldld/hue/hue"
 	"golang.org/x/exp/slog"
@@ -10,11 +11,13 @@ import (
 type SceneID string
 
 type Scene struct {
-	h *hue.Client
+	t *Timelight
 
-	ID     SceneID
-	Hue    hue.Scene
-	Lights map[LightID]*Light
+	ID          SceneID
+	TargetState TargetState
+	LastUpdated time.Time
+	Hue         hue.Scene
+	Lights      map[LightID]*Light
 }
 
 func (t *Timelight) initScenes() error {
@@ -31,7 +34,7 @@ func (t *Timelight) initScenes() error {
 		}
 
 		scene := &Scene{
-			h: t.hue,
+			t: t,
 
 			ID:     SceneID(s.ID),
 			Hue:    s,
@@ -49,7 +52,6 @@ func (t *Timelight) initScenes() error {
 				continue
 			}
 			scene.Lights[lightID] = light
-			light.Active = true
 		}
 		t.log.Info("Initialized scene",
 			slog.String("name", scene.Hue.Metadata.Name),
@@ -70,21 +72,39 @@ func isTimelightScene(scene hue.Scene) bool {
 func (s *Scene) UpdateActions(lightState TargetState) error {
 	newActions := make([]hue.SceneAction, len(s.Hue.Actions))
 	for i, oldAction := range s.Hue.Actions {
-		newActions[i].Target = oldAction.Target
+		if oldAction.Target.Type != hue.RTypeLight {
+			continue
+		}
+		lid := LightID(oldAction.Target.ID)
+		light, ok := s.Lights[lid]
+		if !ok {
+			continue
+		}
 
-		if lightState.HasBrightness {
+		newActions[i].Target = oldAction.Target
+		newActions[i].Action.On = &hue.LightOn{On: true}
+
+		if light.HasBrightness && lightState.HasBrightness {
 			newActions[i].Action.Dimming = &hue.DimmingAction{
 				Brightness: lightState.Brightness,
 			}
 		}
-		if lightState.HasTempMirek {
+		if light.HasColorTemperature && lightState.HasTempMirek {
 			newActions[i].Action.ColorTemperature = &hue.ColorTemperatureAction{
 				Mirek: lightState.TempMirek,
 			}
 		}
 	}
 
-	return s.h.UpdateScene(s.Hue.ID, hue.SceneUpdate{Actions: &newActions})
+	err := s.t.hue.UpdateScene(s.Hue.ID, hue.SceneUpdate{Actions: &newActions})
+	if err != nil {
+		return err
+	}
+
+	s.TargetState = lightState
+	s.LastUpdated = time.Now()
+
+	return nil
 }
 
 func (t *Timelight) updateScenes(target TargetState) {

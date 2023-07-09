@@ -1,14 +1,21 @@
 package hue
 
+import "golang.org/x/exp/slog"
+
 type Scene struct {
 	ID       string        `json:"id"`
 	IDv1     string        `json:"id_v1"`
 	Actions  []SceneAction `json:"actions"`
 	Metadata SceneMetadata `json:"metadata"`
 	Group    ResourceRef   `json:"group"`
+	Status   *SceneStatus  `json:"status,omitempty"`
 }
 
 func (_ Scene) Type() ResourceType { return RTypeScene }
+
+type SceneStatus struct {
+	Active string `json:"active"`
+}
 
 type SceneAction struct {
 	Target ResourceRef `json:"target"`
@@ -57,8 +64,27 @@ func (c *Client) GetScenes() ([]Scene, error) {
 	return res.Data, nil
 }
 
+func (c *Client) GetScene(id string) (Scene, error) {
+	var emptyScene Scene
+	var res GetScenesResponse
+	if err := c.get("/scene/"+id, &res); err != nil {
+		return emptyScene, err
+	}
+	if len(res.Errors) != 0 {
+		return emptyScene, joinHueErrors(res.Errors)
+	}
+	if len(res.Data) == 0 {
+		return emptyScene, nil
+	}
+	if len(res.Data) > 1 {
+		c.log.Warn("got more than one scene", slog.String("id", id))
+	}
+
+	return res.Data[0], nil
+}
+
 type SceneUpdate struct {
-	Actions *[]SceneAction `json:"action,omitempty"`
+	Actions *[]SceneAction `json:"actions,omitempty"`
 }
 
 type UpdateSceneResponse struct {
