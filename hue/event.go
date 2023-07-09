@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	retrySleepDuration = 5 * time.Second
+	retrySleepDuration = 2 * time.Second
 )
 
 type Event struct {
@@ -83,13 +83,17 @@ func (r *rawEvent) UnmarshalJSON(data []byte) error {
 }
 
 func (c *Client) EventListener(filter EventFilter, out chan<- Event) {
-	// Listen for events forever. TODO: Do we ever want to manually cancel?
+	var lastEventId string
+	var err error
+
 	for {
-		err := c.listen(filter, out)
+		lastEventId, err = c.listen(filter, out)
 		c.log.Error("Error while listening for events. Retrying...",
 			slog.Any("error", err),
+			slog.String("last_event_id", lastEventId),
 			slog.Duration("retry_after", retrySleepDuration),
 		)
+		// TODO: Set lastEventID on retry.
 
 		time.Sleep(retrySleepDuration)
 	}
@@ -97,18 +101,17 @@ func (c *Client) EventListener(filter EventFilter, out chan<- Event) {
 
 // Listen to events on http2 stream. Take a callback to use to filter events, and send
 // matching events to a channel
-// TODO: Does this need context?
-func (c *Client) listen(filter EventFilter, out chan<- Event) error {
+func (c *Client) listen(filter EventFilter, out chan<- Event) (string, error) {
 	req, _ := http.NewRequest(http.MethodGet, c.absURL("/eventstream/clip/v2"), nil)
 	req.Header.Add(hueAppKeyHeader, c.AppKey)
 	conn := c.sseClient.NewConnection(req)
 
-	conn.SubscribeMessages(func(ev sse.Event) {
+	var lastEventID string
+	conn.SubscribeToAll(func(ev sse.Event) {
+		lastEventID = ev.LastEventID
 		if len(ev.Data) == 0 {
 			return
 		}
-
-		c.log.Debug("Got event", "event", ev)
 
 		var rawMsgs []json.RawMessage
 		if err := json.Unmarshal(ev.Data, &rawMsgs); err != nil {
@@ -138,7 +141,6 @@ func (c *Client) listen(filter EventFilter, out chan<- Event) error {
 	})
 
 	c.log.Info("Listening for bridge events")
-	return conn.Connect()
-	// TODO: Do we need to inject heartbeat events to ensure that connection is still alive?
-	// See: https://github.com/home-assistant-libs/aiohue/blob/18ed0a4122bb9cf4f501267de26799a9e2c39dee/aiohue/v2/controllers/events.py#L284
+	err := conn.Connect()
+	return lastEventID, err
 }

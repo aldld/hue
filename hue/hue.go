@@ -87,7 +87,6 @@ func (c *Client) put(endpoint string, body any, response any) error {
 		return err
 	}
 	bodyReader := bytes.NewReader(bodyJson)
-	c.log.Debug("put request", slog.String("body", string(bodyJson)))
 
 	req, err := http.NewRequest(http.MethodPut, c.resourceURL(endpoint), bodyReader)
 	if err != nil {

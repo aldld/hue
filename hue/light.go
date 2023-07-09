@@ -42,14 +42,14 @@ type LightMetadata struct {
 }
 
 type Light struct {
-	ID               string           `json:"id"`
-	IDv1             string           `json:"id_v1"`
-	Metadata         LightMetadata    `json:"metadata"`
-	On               LightOn          `json:"on"`
-	Dimming          Dimming          `json:"dimming"`
-	Color            Color            `json:"color"`
-	ColorTemperature ColorTemperature `json:"color_temperature"`
-	Owner            ResourceRef      `json:"owner"`
+	ID               string            `json:"id"`
+	IDv1             string            `json:"id_v1"`
+	Metadata         *LightMetadata    `json:"metadata,omitempty"`
+	On               *LightOn          `json:"on,omitempty"`
+	Dimming          *Dimming          `json:"dimming,omitempty"`
+	Color            *Color            `json:"color,omitempty"`
+	ColorTemperature *ColorTemperature `json:"color_temperature,omitempty"`
+	Owner            *ResourceRef      `json:"owner,omitempty"`
 }
 
 func (_ Light) Type() ResourceType { return RTypeLight }
