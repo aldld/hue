@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	MinMirek = 153
-	MaxMirek = 500
+	MinMirek      = 153
+	MaxMirek      = 500
+	MinBrightness = 0
+	MaxBrightness = 100
 )
 
 type LightID string
@@ -18,12 +20,44 @@ type LightID string
 type Light struct {
 	h *hue.Client
 
-	ID     LightID
-	Hue    hue.Light
-	Active bool // Is Timelight currently controlling this light?
+	ID                  LightID
+	Active              bool // Is Timelight currently controlling this light?
+	HasColor            bool
+	HasColorTemperature bool
+	HasBrightness       bool
+
+	LastUpdated time.Time
+	TargetState TargetState
 }
 
-func (l *Light) Update(target TargetState, duration time.Duration) error {
+func (l *Light) SetActive() {
+	l.Active = true
+}
+
+func (l *Light) SetInactive() {
+	l.Active = false
+}
+
+func (l *Light) restrictTarget(target TargetState) TargetState {
+	if !l.HasBrightness {
+		target.HasBrightness = false
+		target.Brightness = 0
+	}
+	if !l.HasColorTemperature {
+		target.HasTempMirek = false
+		target.TempMirek = 0
+	}
+	return target
+}
+
+func (l *Light) Update(now time.Time, target TargetState, duration time.Duration) error {
+	target = l.restrictTarget(target)
+
+	if l.TargetState == target {
+		// New target state equals last target state, nothing to do.
+		return nil
+	}
+
 	var update hue.LightUpdate
 	if target.HasBrightness {
 		update.Dimming = &hue.DimmingUpdate{
@@ -37,7 +71,14 @@ func (l *Light) Update(target TargetState, duration time.Duration) error {
 	}
 	update.Dynamics = &hue.Dynamics{DurationMs: int(duration.Milliseconds())}
 
-	return l.h.UpdateLight(l.Hue.ID, update)
+	if err := l.h.UpdateLight(string(l.ID), update); err != nil {
+		return err
+	}
+
+	l.LastUpdated = now
+	l.TargetState = target
+
+	return nil
 }
 
 type TargetState struct {
@@ -89,8 +130,11 @@ func (t *Timelight) initLights() error {
 		light := &Light{
 			h:      t.hue,
 			ID:     LightID(l.ID),
-			Hue:    l,
 			Active: false,
+
+			HasColor:            l.Color != nil,
+			HasColorTemperature: l.ColorTemperature != nil,
+			HasBrightness:       l.Dimming != nil,
 		}
 		t.lights[light.ID] = light
 	}
@@ -100,7 +144,7 @@ func (t *Timelight) initLights() error {
 	return nil
 }
 
-func (t *Timelight) updateLights(target TargetState) {
+func (t *Timelight) updateLights(now time.Time, target TargetState) {
 	t.log.Info("updating lights", slog.Any("target", target))
 
 	successes := 0
@@ -111,9 +155,7 @@ func (t *Timelight) updateLights(target TargetState) {
 			continue
 		}
 
-		// TODO: Only send an update if the new target differs from the current state.
-		// TODO Check if light supports color temperature
-		err := light.Update(target, 10*time.Second)
+		err := light.Update(now, target, 10*time.Second)
 		if err != nil {
 			t.log.Error("error while updating light",
 				slog.String("id", string(light.ID)),
