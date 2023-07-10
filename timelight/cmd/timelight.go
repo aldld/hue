@@ -12,8 +12,14 @@ import (
 )
 
 func main() {
+	args := os.Args
+	configFilename := "config.toml"
+	if len(args) >= 2 {
+		configFilename = args[len(args)-1]
+	}
+
 	var config timelight.Config
-	if _, err := toml.DecodeFile("config.toml", &config); err != nil {
+	if _, err := toml.DecodeFile(configFilename, &config); err != nil {
 		panic(err)
 	}
 
