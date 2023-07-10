@@ -30,6 +30,7 @@ func main() {
 
 	tl := timelight.New(log, config)
 	if err := tl.Run(); err != nil {
-		panic(err)
+		log.Error("timelight errored", slog.Any("err", err))
+		os.Exit(1)
 	}
 }
