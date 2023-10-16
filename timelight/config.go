@@ -79,66 +79,59 @@ func (c StateConfig) TargetState() TargetState {
 }
 
 type TimelightConfig struct {
-	Transition     string `toml:"transition"`
+	Brightness TransitionConfig `toml:"brightness"`
+	ColorTemp  TransitionConfig `toml:"color_temp"`
+}
+
+func (c TimelightConfig) Spec() (Spec, error) {
+	brightness, err := c.Brightness.spec()
+	if err != nil {
+		return nil, err
+	}
+
+	temp, err := c.ColorTemp.spec()
+	if err != nil {
+		return nil, err
+	}
+
+	return SmoothSpec{Brightness: brightness, TempMirek: temp}, nil
+}
+
+type TransitionConfig struct {
 	StartTime      string `toml:"start_time"`
 	TransitionTime string `toml:"transition_time"`
 	EndTime        string `toml:"end_time"`
 
-	Start StateConfig `toml:"start"`
-	End   StateConfig `toml:"end"`
+	StartValue int `toml:"start_value"`
+	EndValue   int `toml:"end_value"`
 }
 
-func (c TimelightConfig) Spec() (Spec, error) {
-	start := c.Start.TargetState()
-	end := c.End.TargetState()
+func (c TransitionConfig) spec() (SmoothTransition, error) {
+	var empty SmoothTransition
 
-	switch c.Transition {
-	case "smooth":
-		startTime, err := parseMinuteOfDay(c.StartTime)
-		if err != nil {
-			return nil, err
-		}
-
-		transitionTime, err := parseMinuteOfDay(c.TransitionTime)
-		if err != nil {
-			return nil, err
-		}
-
-		endTime, err := parseMinuteOfDay(c.EndTime)
-		if err != nil {
-			return nil, err
-		}
-
-		return SmoothSpec{
-			StartMinute:      startTime,
-			TransitionMinute: transitionTime,
-			EndMinute:        endTime,
-
-			Start: start,
-			End:   end,
-		}, nil
-
-	case "linear":
-		startTime, err := parseMinuteOfDay(c.StartTime)
-		if err != nil {
-			return nil, err
-		}
-
-		endTime, err := parseMinuteOfDay(c.EndTime)
-		if err != nil {
-			return nil, err
-		}
-
-		return LinearSpec{
-			StartMinute: startTime,
-			EndMinute:   endTime,
-
-			Start: start,
-			End:   end,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown transition: %s", c.Transition)
+	startTime, err := parseMinuteOfDay(c.StartTime)
+	if err != nil {
+		return empty, err
 	}
+
+	transitionTime, err := parseMinuteOfDay(c.TransitionTime)
+	if err != nil {
+		return empty, err
+	}
+
+	endTime, err := parseMinuteOfDay(c.EndTime)
+	if err != nil {
+		return empty, err
+	}
+
+	return SmoothTransition{
+		StartMinute:      startTime,
+		TransitionMinute: transitionTime,
+		EndMinute:        endTime,
+
+		Start: float64(c.StartValue),
+		End:   float64(c.EndValue),
+	}, nil
 }
 
 func parseMinuteOfDay(s string) (int, error) {
