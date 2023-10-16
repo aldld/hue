@@ -11,87 +11,32 @@ type Spec interface {
 	TargetLightState(now time.Time) TargetState
 }
 
-type LinearSpec struct {
-	StartMinute int
-	EndMinute   int
-
-	Start TargetState
-	End   TargetState
-}
-
-func (s LinearSpec) TargetLightState(now time.Time) TargetState {
-	curMinute := minuteOfDay(now)
-	if curMinute < s.StartMinute || curMinute > s.EndMinute {
-		return s.End
-	}
-
-	p := s.progressPct(curMinute)
-
-	var target TargetState
-	if b, ok := s.brightness(p); ok {
-		target = target.WithBrightness(b)
-	}
-	if t, ok := s.temp(p); ok {
-		target = target.WithColorTemp(t)
-	}
-
-	return target
-}
-
-func (s LinearSpec) brightness(p float64) (float64, bool) {
-	if !s.Start.HasBrightness && !s.End.HasBrightness {
-		return 0, false
-	}
-	if !s.End.HasBrightness {
-		return s.Start.Brightness, true
-	}
-	if !s.Start.HasBrightness {
-		return s.End.Brightness, true
-	}
-
-	return s.Start.Brightness + p*(s.End.Brightness-s.Start.Brightness), true
-}
-
-func (s LinearSpec) temp(p float64) (int, bool) {
-	if !s.Start.HasTempMirek && !s.End.HasTempMirek {
-		return 0, false
-	}
-	if !s.End.HasTempMirek {
-		return s.Start.TempMirek, true
-	}
-	if !s.Start.HasTempMirek {
-		return s.End.TempMirek, true
-	}
-
-	return int(float64(s.Start.TempMirek) + p*float64(s.End.TempMirek-s.Start.TempMirek)), true
-}
-
 func minuteOfDay(t time.Time) int {
 	hour, min, _ := t.Clock()
 	return 60*hour + min
 }
 
-func (s LinearSpec) progressPct(curMinute int) float64 {
-	p := float64(curMinute-s.StartMinute) / float64(s.EndMinute-s.StartMinute)
-	if p < 0 {
-		return 0
-	}
-	if p > 1 {
-		return 1
-	}
-	return p
+type SmoothSpec struct {
+	Brightness SmoothTransition
+	TempMirek  SmoothTransition
 }
 
-type SmoothSpec struct {
+func (s SmoothSpec) TargetLightState(now time.Time) TargetState {
+	brightness := s.Brightness.targetValue(now)
+	temp := s.TempMirek.targetValue(now)
+	return DefaultTargetState.WithBrightness(brightness).WithColorTemp(int(temp))
+}
+
+type SmoothTransition struct {
 	StartMinute      int // Time to begin applying start state.
 	TransitionMinute int // Time to begin transition towards end state.
 	EndMinute        int // Time to begin applying end state.
 
-	Start TargetState
-	End   TargetState
+	Start float64
+	End   float64
 }
 
-func (s SmoothSpec) progressPct(curMinute int) float64 {
+func (s SmoothTransition) progressPct(curMinute int) float64 {
 	p := float64(curMinute-s.TransitionMinute) / float64(s.EndMinute-s.TransitionMinute)
 	if p < 0 {
 		return 0
@@ -102,7 +47,7 @@ func (s SmoothSpec) progressPct(curMinute int) float64 {
 	return p
 }
 
-func (s SmoothSpec) TargetLightState(now time.Time) TargetState {
+func (s SmoothTransition) targetValue(now time.Time) float64 {
 	curMinute := minuteOfDay(now)
 	if curMinute < s.StartMinute || curMinute > s.EndMinute {
 		return s.End
@@ -112,44 +57,7 @@ func (s SmoothSpec) TargetLightState(now time.Time) TargetState {
 	}
 
 	p := s.progressPct(curMinute)
-
-	var target TargetState
-	if b, ok := s.brightness(p); ok {
-		target = target.WithBrightness(b)
-	}
-	if t, ok := s.temp(p); ok {
-		target = target.WithColorTemp(t)
-	}
-
-	return target
-}
-
-func (s SmoothSpec) brightness(p float64) (float64, bool) {
-	if !s.Start.HasBrightness && !s.End.HasBrightness {
-		return 0, false
-	}
-	if !s.End.HasBrightness {
-		return s.Start.Brightness, true
-	}
-	if !s.Start.HasBrightness {
-		return s.End.Brightness, true
-	}
-
-	return transition(s.Start.Brightness, s.End.Brightness, p), true
-}
-
-func (s SmoothSpec) temp(p float64) (int, bool) {
-	if !s.Start.HasTempMirek && !s.End.HasTempMirek {
-		return 0, false
-	}
-	if !s.End.HasTempMirek {
-		return s.Start.TempMirek, true
-	}
-	if !s.Start.HasTempMirek {
-		return s.End.TempMirek, true
-	}
-
-	return int(transition(float64(s.Start.TempMirek), float64(s.End.TempMirek), p)), true
+	return transition(s.Start, s.End, p)
 }
 
 // For fixed values of start and end, transitions "smoothly" from start to end
